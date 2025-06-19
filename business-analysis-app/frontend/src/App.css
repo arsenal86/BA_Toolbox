@@ -1,0 +1,138 @@
+body {
+  font-family: sans-serif;
+  margin: 0;
+  background-color: #f4f7f6;
+  color: #333;
+}
+
+.App {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  background-color: #fff;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.App-header {
+  background-color: #2c3e50;
+  color: white;
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.App-header h1 {
+  margin: 0;
+  font-size: 2em;
+}
+
+.story-form .form-group {
+  margin-bottom: 15px;
+}
+
+.story-form label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: #34495e;
+}
+
+.story-form textarea {
+  width: calc(100% - 20px); /* Adjust for padding */
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 1em;
+  min-height: 60px;
+}
+
+.story-form button {
+  background-color: #3498db;
+  color: white;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background-color 0.3s ease;
+}
+
+.story-form button:hover {
+  background-color: #2980b9;
+}
+
+.story-form button:disabled {
+  background-color: #bdc3c7;
+  cursor: not-allowed;
+}
+
+.error-message {
+  color: #c0392b;
+  background-color: #f9ebec;
+  border: 1px solid #e74c3c;
+  padding: 10px;
+  border-radius: 4px;
+  margin-top: 15px;
+}
+
+.analysis-results {
+  margin-top: 30px;
+  padding: 20px;
+  background-color: #ecf0f1;
+  border-radius: 4px;
+}
+
+.analysis-results h2 {
+  color: #2c3e50;
+  border-bottom: 2px solid #bdc3c7;
+  padding-bottom: 10px;
+  margin-top: 0;
+}
+
+.analysis-results .result-section {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px dashed #ccc;
+}
+.analysis-results .result-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.analysis-results h3 {
+  color: #34495e;
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.analysis-results p,
+.analysis-results li {
+  line-height: 1.6;
+}
+
+.analysis-results strong {
+  color: #2980b9;
+}
+
+.analysis-results ul {
+  padding-left: 20px;
+}
+
+.analysis-results pre {
+  background-color: #fff;
+  border: 1px solid #ddd;
+  padding: 10px;
+  border-radius: 4px;
+  white-space: pre-wrap; /* Allows text to wrap */
+  word-wrap: break-word; /* Breaks long words if necessary */
+  font-family: monospace;
+}
+
+.App-footer {
+  text-align: center;
+  margin-top: 30px;
+  padding: 15px;
+  background-color: #34495e;
+  color: #ecf0f1;
+  font-size: 0.9em;
+}

@@ -15,7 +15,8 @@ function App() {
     setAnalysisResult(null);
 
     try {
-      const response = await fetch('http://localhost:3001/api/analyze-story', {
+      // Updated API endpoint for Netlify Functions
+      const response = await fetch('/.netlify/functions/analyze-story', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

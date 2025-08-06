@@ -1,0 +1,12 @@
+# netlify.toml (move this file to the root of your repo)
+
+[build]
+  base = "business-analysis-app"
+  command = "cd frontend && npm install && npm run build"
+  publish = "frontend/build"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

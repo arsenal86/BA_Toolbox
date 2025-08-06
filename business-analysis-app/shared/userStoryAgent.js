@@ -1,313 +1,329 @@
-// userStoryAgent.js
+/**
+ * @fileoverview A script to analyze a user story based on clarity and INVEST principles.
+ * @version 2.0.0
+ */
 
-const STORY_FORMAT_REGEX = /As an? (.*), I want (.*), so that (.*)/i;
+// =================================================================
+// CONFIGURATION
+// Centralized configuration for scores, keywords, and feedback.
+// This makes the agent easier to tune and maintain.
+// =================================================================
+const CONFIG = {
+    STORY_FORMAT_REGEX: /As an? (.*), I want (.*), so that (.*)/i,
+    THRESHOLDS: {
+        SHORT_STORY_LENGTH: 25,
+        LONG_STORY_LENGTH: 200,
+        MAX_ACCEPTANCE_CRITERIA: 7,
+    },
+    KEYWORDS: {
+        AMBIGUOUS: ["should", "could", "might"],
+        DEPENDENCIES: ["dependent on", "after", "following", "once"],
+        TECHNICAL: ["database schema", "api endpoint", "react component", "algorithm", "sql query"],
+        TESTABLE_AC: ["verify that", "ensure that", "given", "when", "then", "confirm that"],
+    },
+    SCORING: {
+        // Clarity & Requirement Analysis (Max: 40)
+        FORMAT_SUCCESS: 10,
+        FORMAT_FAIL: 2,
+        CLARITY_BASE: 10,
+        CLARITY_BONUS_CONCISE: 5, // Bonus for not being too short
+        CLARITY_BONUS_SPECIFIC: 5, // Bonus for avoiding ambiguous words
+        AC_PROVIDED: 15,
+        AC_EMPTY: 5,
+        AC_MISSING: 0,
+        AC_NON_TESTABLE_DEDUCTION: 5,
+        // INVEST Criteria (Max: 60, 10 per category)
+        INVEST_DEFAULT_HIGH: 8,
+        INVEST_DEFAULT_MEDIUM: 6,
+        INVEST_DEFAULT_LOW: 3,
+    },
+    READINESS_CATEGORIES: [
+        { score: 90, label: "✅ Excellent – Ready for Development", summary: "Story is well-formed, clear, and meets all INVEST criteria. Minimal or no changes needed." },
+        { score: 71, label: "⚠️ At Standard Expected – Minor Refinement Needed", summary: "Mostly ready with small gaps. Can be addressed quickly." },
+        { score: 50, label: "❗ Requires Improvement – Needs Refinement", summary: "Multiple issues present. Not ready for development without rework." },
+        { score: 0,  label: "🚫 Not Ready – Fundamentally Incomplete", summary: "Lacks essential components. Requires major revision or clarification." },
+    ]
+};
 
+// =================================================================
+// HELPER FUNCTIONS
+// =================================================================
+
+/**
+ * Gets the readiness category based on a percentage score.
+ * @param {number} score - The overall percentage score (0-100).
+ * @returns {{label: string, summary: string}} The readiness category information.
+ */
 function getReadinessCategory(score) {
-    if (score >= 90) return { label: "✅ Excellent – Ready for Development", summary: "Story is well-formed, clear, and meets all INVEST criteria. Minimal or no changes needed." };
-    if (score >= 71) return { label: "⚠️ At Standard Expected – Minor Refinement Needed", summary: "Mostly ready with small gaps. Can be addressed quickly." };
-    if (score >= 50) return { label: "❗ Requires Improvement – Needs Refinement", summary: "Multiple issues present. Not ready for development without rework." };
-    return { label: "🚫 Not Ready – Fundamentally Incomplete", summary: "Lacks essential components. Requires major revision or clarification." };
+    return CONFIG.READINESS_CATEGORIES.find(cat => score >= cat.score);
 }
 
+/**
+ * Analyzes acceptance criteria for presence and testability.
+ * This helper function avoids code duplication.
+ * @param {string} acceptanceCriteriaText - The raw text of the acceptance criteria.
+ * @returns {{criteria: string[], testableKeywordsFound: boolean, nonTestableCount: number}} Analysis result.
+ */
+function analyzeAcceptanceCriteria(acceptanceCriteriaText) {
+    if (!acceptanceCriteriaText || acceptanceCriteriaText.trim() === '') {
+        return { criteria: [], testableKeywordsFound: false, nonTestableCount: 0 };
+    }
+    const criteria = acceptanceCriteriaText.split('\n').filter(c => c.trim() !== '');
+    let nonTestableCount = 0;
+    let testableKeywordsFound = false;
+
+    criteria.forEach(c => {
+        const isTestable = CONFIG.KEYWORDS.TESTABLE_AC.some(kw => c.toLowerCase().includes(kw));
+        if (!isTestable) {
+            nonTestableCount++;
+        } else {
+            testableKeywordsFound = true;
+        }
+    });
+
+    return { criteria, testableKeywordsFound, nonTestableCount };
+}
+
+
+// =================================================================
+// CORE ANALYSIS FUNCTIONS
+// =================================================================
+
+/**
+ * Analyzes the story for format, clarity, and acceptance criteria.
+ * @param {string} story - The user story text.
+ * @param {string} acceptanceCriteriaText - The acceptance criteria text.
+ * @returns {object} A detailed analysis of clarity and requirements.
+ */
 function analyzeClarityAndRequirement(story, acceptanceCriteriaText) {
-    let formatScore = 0;
-    let formatFeedback = "";
-    const formatMatch = story.match(STORY_FORMAT_REGEX);
+    const formatMatch = story.match(CONFIG.STORY_FORMAT_REGEX);
+    const formatScore = formatMatch ? CONFIG.SCORING.FORMAT_SUCCESS : CONFIG.SCORING.FORMAT_FAIL;
+    const formatFeedback = formatMatch ?
+        "Story follows the standard 'As a [persona], I want [goal], so that [value]' format." :
+        "Story does not strictly follow the 'As a [persona], I want [goal], so that [value]' format. This helps ensure role, action, and benefit are clear.";
 
-    if (formatMatch) {
-        formatScore = 10;
-        formatFeedback = "Story follows the standard 'As a [persona], I want [goal], so that [value]' format.";
+    // Clarity & Ambiguity
+    let clarityScore = CONFIG.SCORING.CLARITY_BASE;
+    let clarityFeedbackItems = [];
+    if (story.length < CONFIG.THRESHOLDS.SHORT_STORY_LENGTH) {
+        clarityFeedbackItems.push("Story seems very short, ensure it's sufficiently detailed.");
     } else {
-        formatScore = 2; // Some points if a story is provided, even if not perfect format
-        formatFeedback = "Story does not strictly follow the 'As a [persona], I want [goal], so that [value]' format. This format helps ensure role, action, and benefit are clear. Consider rephrasing.";
+        clarityScore += CONFIG.SCORING.CLARITY_BONUS_CONCISE;
     }
 
-    // Clarity & Ambiguity (Simple checks for now, can be expanded)
-    let clarityScore = 0;
-    let clarityFeedback = [];
-    if (story.length < 20) { // Arbitrary short length
-        clarityFeedback.push("Story seems very short, ensure it's sufficiently detailed.");
-        clarityScore += 5;
+    const hasAmbiguousTerms = CONFIG.KEYWORDS.AMBIGUOUS.some(term => story.toLowerCase().includes(term));
+    if (hasAmbiguousTerms) {
+        clarityFeedbackItems.push("Avoid ambiguous terms like 'should', 'could', or 'might'. Be specific.");
     } else {
-        clarityScore += 10; // Base score for decent length
+        clarityScore += CONFIG.SCORING.CLARITY_BONUS_SPECIFIC;
     }
-    if (story.toLowerCase().includes("should") || story.toLowerCase().includes("could") || story.toLowerCase().includes("might")) {
-        clarityFeedback.push("Avoid ambiguous terms like 'should', 'could', or 'might'. Be specific.");
-    } else {
-        clarityScore += 5; // Bonus for avoiding common ambiguous words
-    }
-    const clarityFinalScore = Math.min(15, clarityScore);
-    const clarityFinalFeedback = clarityFeedback.length > 0 ? clarityFeedback.join(" ") : "Language appears reasonably clear.";
-
+    const clarityFinalScore = Math.min(15, clarityScore); // Cap score at 15
+    const clarityFinalFeedback = clarityFeedbackItems.length > 0 ? clarityFeedbackItems.join(" ") : "Language appears reasonably clear.";
 
     // Acceptance Criteria
-    let acScore = 0;
-    let acFeedback = "";
-    if (acceptanceCriteriaText && acceptanceCriteriaText.trim().length > 0) {
-        const criteria = acceptanceCriteriaText.split('\n').filter(c => c.trim() !== '');
-        if (criteria.length > 0) {
-            acScore = 15;
-            acFeedback = `Acceptance criteria provided (${criteria.length} criteria found). Ensure they are specific and testable.`;
-            // Basic testability check (very naive)
-            const testableKeywords = ["verify that", "ensure that", "given", "when", "then"];
-            let nonTestableCount = 0;
-            criteria.forEach(c => {
-                if (!testableKeywords.some(kw => c.toLowerCase().includes(kw))) {
-                    nonTestableCount++;
-                }
-            });
-            if (nonTestableCount > criteria.length / 2) {
-                acScore -= 5; // Deduct if many ACs don't seem testable
-                acFeedback += " Some ACs may not be easily testable; consider phrasing with keywords like 'Verify that...', 'Ensure that...', or using Gherkin (Given/When/Then).";
+    const acAnalysis = analyzeAcceptanceCriteria(acceptanceCriteriaText);
+    let acScore = CONFIG.SCORING.AC_MISSING;
+    let acFeedback = "Acceptance criteria are missing. Clear, testable ACs are essential. Consider using the 'Given/When/Then' format.";
+
+    if (acceptanceCriteriaText) { // Check if the field was provided at all
+        if (acAnalysis.criteria.length > 0) {
+            acScore = CONFIG.SCORING.AC_PROVIDED;
+            acFeedback = `Acceptance criteria provided (${acAnalysis.criteria.length} criteria found). Ensure they are specific and testable.`;
+            if (acAnalysis.nonTestableCount > acAnalysis.criteria.length / 2) {
+                acScore -= CONFIG.SCORING.AC_NON_TESTABLE_DEDUCTION;
+                acFeedback += " Some ACs may not be easily testable; consider phrasing with keywords like 'Verify that...' or using Gherkin (Given/When/Then).";
             }
         } else {
-            acScore = 5;
+            acScore = CONFIG.SCORING.AC_EMPTY;
             acFeedback = "Acceptance criteria section is present but empty. Please define clear, testable acceptance criteria.";
         }
-    } else {
-        acScore = 0;
-        acFeedback = "Acceptance criteria are missing. Clear, testable acceptance criteria are essential for development and testing. Please infer and provide them, for example: 'Given [context], When [action], Then [outcome].'";
     }
-    const acFinalScore = Math.max(0, acScore); // Ensure score isn't negative
-
-    const totalClarityScore = formatScore + clarityFinalScore + acFinalScore;
 
     return {
-        total: totalClarityScore,
+        total: formatScore + clarityFinalScore + acScore,
         formatCheck: { score: formatScore, feedback: formatFeedback },
         clarityAmbiguity: { score: clarityFinalScore, feedback: clarityFinalFeedback },
-        acceptanceCriteria: { score: acFinalScore, feedback: acFeedback }
+        acceptanceCriteria: { score: acScore, feedback: acFeedback }
     };
 }
 
+/**
+ * Assesses the story against the INVEST criteria.
+ * @param {string} story - The user story text.
+ * @param {string} acceptanceCriteriaText - The acceptance criteria text.
+ * @returns {object} A detailed analysis of each INVEST principle.
+ */
 function analyzeINVEST(story, acceptanceCriteriaText) {
-    // These are subjective and will be simplified for this agent
-    // In a real scenario, more sophisticated NLP or heuristics would be needed.
+    const acAnalysis = analyzeAcceptanceCriteria(acceptanceCriteriaText);
+    const formatMatch = story.match(CONFIG.STORY_FORMAT_REGEX);
 
-    let independentScore = 7; // Default, assuming mostly independent
-    let independentJustification = "Assumed to be developable independently. Review for hidden dependencies.";
-    if (story.toLowerCase().includes("dependent on") || story.toLowerCase().includes("after")) {
-        independentScore = 3;
-        independentJustification = "Story may have dependencies based on keywords. Clarify if it can be worked on without external blockers.";
-    }
-
-    let negotiableScore = 8;
-    let negotiableJustification = "Story seems to describe 'what' not 'how'. Allows for discussion on implementation.";
-    // Simple check: if it contains very technical terms, it might be too prescriptive.
-    const technicalTerms = ["database schema", "api endpoint", "react component", "algorithm"];
-    if (technicalTerms.some(term => story.toLowerCase().includes(term))) {
-        negotiableScore = 5;
-        negotiableJustification = "Story might be too prescriptive with technical details. Focus on user needs, leave implementation details for development team discussion.";
-    }
-
-
-    let valuableScore = 5;
-    let valuableJustification = "Value needs to be clearly articulated in the 'so that' part.";
-    const formatMatch = story.match(STORY_FORMAT_REGEX);
-    if (formatMatch && formatMatch[3] && formatMatch[3].trim().length > 5) {
-        valuableScore = 10;
-        valuableJustification = `Value proposition '${formatMatch[3]}' seems clear.`;
-    } else {
-        valuableJustification = "The 'so that [value]' part of the story is missing or unclear. Clearly state the benefit to the user or business.";
-    }
-
-
-    let estimableScore = 6;
-    let estimableJustification = "Scope needs to be clear for estimation. Ensure ACs are well-defined.";
-    if (acceptanceCriteriaText && acceptanceCriteriaText.trim().length > 10 && story.length > 30) { // Basic check
-        estimableScore = 8;
-        estimableJustification = "Story and ACs provide a basis for estimation. Refine if team finds it hard to estimate.";
-    } else {
-        estimableJustification = "Story or ACs may be too vague or missing, making estimation difficult. Please provide more detail.";
-    }
-
-
-    let smallScore = 7;
-    let smallJustification = "Assumed to be completable within a sprint. If estimation is large, consider splitting.";
-    if (story.length > 200 || (acceptanceCriteriaText && acceptanceCriteriaText.split('\n').length > 7)) { // Arbitrary limits
-        smallScore = 4;
-        smallJustification = "Story or number of ACs seems large. Consider if it can be broken down into smaller, valuable pieces.";
-    }
-
-    let testableScore = 5;
-    let testableJustification = "Testability depends heavily on clear ACs.";
-     if (acceptanceCriteriaText && acceptanceCriteriaText.trim().length > 0) {
-        const criteria = acceptanceCriteriaText.split('\n').filter(c => c.trim() !== '');
-        if (criteria.length > 0) {
-            testableScore = 8; // Base score if ACs exist
-            testableJustification = "Acceptance criteria provided. Ensure they are unambiguous and allow for clear pass/fail conditions.";
-            const testableKeywords = ["verify that", "ensure that", "given", "when", "then"];
-            let nonTestableCount = 0;
-            criteria.forEach(c => {
-                if (!testableKeywords.some(kw => c.toLowerCase().includes(kw))) {
-                    nonTestableCount++;
-                }
-            });
-            if (nonTestableCount > 0) { // If any AC doesn't seem easily testable
-                testableScore -= 2 * nonTestableCount; // Deduct points
-                testableJustification += ` ${nonTestableCount} AC(s) may benefit from clearer testable language (e.g., using 'Verify that...', 'Given/When/Then').`;
-            }
-             if (testableScore < 0) testableScore = 0;
-        } else {
-            testableJustification = "Acceptance criteria section is present but empty. Testability cannot be assessed without defined ACs.";
-        }
-    } else {
-        testableJustification = "Acceptance criteria are missing. Stories cannot be effectively tested without them.";
-    }
-    const testableFinalScore = Math.max(0, testableScore);
-
-
-    const totalInvestScore = independentScore + negotiableScore + valuableScore + estimableScore + smallScore + testableFinalScore;
-
-    return {
-        total: totalInvestScore,
-        independent: { score: independentScore, justification: independentJustification },
-        negotiable: { score: negotiableScore, justification: negotiableJustification },
-        valuable: { score: valuableScore, justification: valuableJustification },
-        estimable: { score: estimableScore, justification: estimableJustification },
-        small: { score: smallScore, justification: smallJustification },
-        testable: { score: testableFinalScore, justification: testableJustification }
+    // Independent
+    const hasDependencyKeywords = CONFIG.KEYWORDS.DEPENDENCIES.some(term => story.toLowerCase().includes(term));
+    const independent = {
+        score: hasDependencyKeywords ? CONFIG.SCORING.INVEST_DEFAULT_LOW : CONFIG.SCORING.INVEST_DEFAULT_MEDIUM,
+        justification: hasDependencyKeywords ? "Story may have dependencies based on keywords. Clarify if it can be worked on without external blockers." : "Assumed to be developable independently. Review for hidden dependencies."
     };
+
+    // Negotiable
+    const hasTechnicalTerms = CONFIG.KEYWORDS.TECHNICAL.some(term => story.toLowerCase().includes(term));
+    const negotiable = {
+        score: hasTechnicalTerms ? CONFIG.SCORING.INVEST_DEFAULT_LOW : CONFIG.SCORING.INVEST_DEFAULT_HIGH,
+        justification: hasTechnicalTerms ? "Story might be too prescriptive with technical details. Focus on user needs, not implementation." : "Story seems to describe 'what' not 'how', allowing for implementation discussion."
+    };
+
+    // Valuable
+    const hasClearValue = formatMatch && formatMatch[3] && formatMatch[3].trim().length > 5;
+    const valuable = {
+        score: hasClearValue ? 10 : CONFIG.SCORING.INVEST_DEFAULT_LOW,
+        justification: hasClearValue ? `Value proposition '${formatMatch[3]}' seems clear.` : "The 'so that [value]' part of the story is missing or unclear. State the benefit to the user or business."
+    };
+
+    // Estimable
+    const isEstimable = acAnalysis.criteria.length > 0 && story.length > CONFIG.THRESHOLDS.SHORT_STORY_LENGTH;
+    const estimable = {
+        score: isEstimable ? CONFIG.SCORING.INVEST_DEFAULT_HIGH : CONFIG.SCORING.INVEST_DEFAULT_MEDIUM,
+        justification: isEstimable ? "Story and ACs provide a solid basis for estimation." : "Story or ACs may be too vague or missing, making estimation difficult. Please provide more detail."
+    };
+
+    // Small
+    const isLarge = story.length > CONFIG.THRESHOLDS.LONG_STORY_LENGTH || acAnalysis.criteria.length > CONFIG.THRESHOLDS.MAX_ACCEPTANCE_CRITERIA;
+    const small = {
+        score: isLarge ? CONFIG.SCORING.INVEST_DEFAULT_LOW : CONFIG.SCORING.INVEST_DEFAULT_HIGH,
+        justification: isLarge ? "Story or number of ACs seems large. Consider if it can be broken down into smaller, valuable pieces." : "Story appears to be a reasonable size, likely completable within a single sprint."
+    };
+
+    // Testable
+    let testableScore = CONFIG.SCORING.INVEST_DEFAULT_LOW;
+    let testableJustification = "Testability cannot be assessed without clear acceptance criteria.";
+    if (acAnalysis.criteria.length > 0) {
+        testableScore = acAnalysis.testableKeywordsFound ? CONFIG.SCORING.INVEST_DEFAULT_HIGH : CONFIG.SCORING.INVEST_DEFAULT_MEDIUM;
+        testableJustification = "Acceptance criteria provided. Ensure they are unambiguous and allow for clear pass/fail conditions.";
+        if (acAnalysis.nonTestableCount > 0) {
+            testableJustification += ` ${acAnalysis.nonTestableCount} AC(s) may benefit from clearer testable language (e.g., using 'Verify that...').`;
+        }
+    }
+    const testable = { score: testableScore, justification: testableJustification };
+
+    const total = independent.score + negotiable.score + valuable.score + estimable.score + small.score + testable.score;
+
+    return { total, independent, negotiable, valuable, estimable, small, testable };
 }
 
-function generateOverallReadiness(clarityScore, investScore) {
-    const totalPossibleScore = 40 + 60;
-    const actualScore = clarityScore + investScore;
+/**
+ * Generates the final analysis object, including overall score and recommendations.
+ * @param {string} story - The user story text.
+ * @param {string} acceptanceCriteriaText - The acceptance criteria text.
+ * @returns {object} The complete user story analysis.
+ */
+function analyzeUserStory(story, acceptanceCriteriaText = "") {
+    if (!story || typeof story !== 'string' || story.trim() === '') {
+        return {
+            error: "Story is empty or missing. Please provide a user story to analyze.",
+            ...generateEmptyReport()
+        };
+    }
+
+    const clarityAnalysis = analyzeClarityAndRequirement(story, acceptanceCriteriaText);
+    const investAnalysis = analyzeINVEST(story, acceptanceCriteriaText);
+
+    const totalPossibleScore = 40 + 60; // Clarity + INVEST
+    const actualScore = clarityAnalysis.total + investAnalysis.total;
     const percentage = Math.round((actualScore / totalPossibleScore) * 100);
     const categoryInfo = getReadinessCategory(percentage);
 
-    return {
+    const overallReadiness = {
         readinessRating: percentage,
         readinessCategory: categoryInfo.label,
         summary: categoryInfo.summary,
         scoreBreakdown: {
-            clarityRequirementAnalysis: clarityScore,
-            investCriteriaAssessment: investScore
+            clarityRequirementAnalysis: clarityAnalysis.total,
+            investCriteriaAssessment: investAnalysis.total
         }
     };
-}
 
-function generateQueriesAndRecommendations(story, clarityAnalysis, investAnalysis) {
-    let queries = [];
-    let recommendations = {
-        suggestedImprovements: [],
-        storyDecomposition: [] // Placeholder for now
-    };
-
-    if (clarityAnalysis.formatCheck.score < 10) {
-        recommendations.suggestedImprovements.push(`Rephrase story to fit: "As a [persona], I want [goal], so that [value]". Current: "${story}"`);
-    }
-    if (clarityAnalysis.clarityAmbiguity.score < 15 && clarityAnalysis.clarityAmbiguity.feedback !== "Language appears reasonably clear.") {
-        recommendations.suggestedImprovements.push(`Improve clarity: ${clarityAnalysis.clarityAmbiguity.feedback}`);
-    }
-    if (clarityAnalysis.acceptanceCriteria.score < 15) {
-        queries.push("Could you provide or refine the acceptance criteria to be more specific and testable?");
-        if (!clarityAnalysis.acceptanceCriteria.feedback.includes("missing")) {
-             recommendations.suggestedImprovements.push(`Refine ACs: ${clarityAnalysis.acceptanceCriteria.feedback}`);
-        } else {
-             recommendations.suggestedImprovements.push(`Add ACs: ${clarityAnalysis.acceptanceCriteria.feedback}`);
-        }
-    }
-
-    if (investAnalysis.independent.score < 7) {
-        queries.push("Are there any hidden dependencies for this story? Can it truly be developed independently?");
-        recommendations.suggestedImprovements.push(`Clarify independence: ${investAnalysis.independent.justification}`);
-    }
-    if (investAnalysis.negotiable.score < 7) {
-        recommendations.suggestedImprovements.push(`Make story more negotiable: ${investAnalysis.negotiable.justification}`);
-    }
-    if (investAnalysis.valuable.score < 7) {
-        queries.push("What is the specific value or benefit this story delivers to the persona or business?");
-        recommendations.suggestedImprovements.push(`Clarify value: ${investAnalysis.valuable.justification}`);
-    }
-    if (investAnalysis.estimable.score < 7) {
-        queries.push("Is the scope clear enough for the team to estimate effort? More details or clearer ACs might be needed.");
-        recommendations.suggestedImprovements.push(`Improve estimability: ${investAnalysis.estimable.justification}`);
-    }
-    if (investAnalysis.small.score < 7) {
-        queries.push("Is this story small enough to be completed in a single sprint? If not, how can it be split?");
-        recommendations.suggestedImprovements.push(`Consider story size: ${investAnalysis.small.justification}`);
-        // Basic decomposition suggestion
-        recommendations.storyDecomposition.push("If the story is too large, consider splitting it by acceptance criteria, or by sub-steps in the user's workflow. Each smaller story should still be valuable and testable.");
-    }
-    if (investAnalysis.testable.score < 7) {
-         queries.push("Are the success conditions clear and testable? How would you verify this story is done?");
-        recommendations.suggestedImprovements.push(`Improve testability: ${investAnalysis.testable.justification}`);
-    }
-
-    // Consolidate recommendations into a string
-    let finalRecs = recommendations.suggestedImprovements.length > 0 ? recommendations.suggestedImprovements.join("\n") : "Story is in good shape, minor tweaks based on feedback might be useful.";
-
-
-    return {
-        outstandingQueriesAndConflicts: queries,
-        actionableRecommendations: {
-            suggestedImprovements: finalRecs,
-            storyDecomposition: recommendations.storyDecomposition
-        }
-    };
-}
-
-
-function analyzeUserStory(story, acceptanceCriteriaText = "") {
-    if (!story || typeof story !== 'string' || story.trim() === '') {
-        // Handle fundamentally incomplete story as per "Initial Interaction"
-        return {
-            overallReadinessScore: {
-                readinessRating: 0,
-                readinessCategory: "🚫 Not Ready – Fundamentally Incomplete",
-                summary: "Story is empty or missing. Please provide a user story.",
-                scoreBreakdown: { clarityRequirementAnalysis: 0, investCriteriaAssessment: 0 }
-            },
-            clarityAndRequirementAnalysis: {
-                formatCheck: { score: 0, feedback: "No story provided." },
-                clarityAmbiguity: { score: 0, feedback: "No story provided." },
-                acceptanceCriteria: { score: 0, feedback: "No story provided." }
-            },
-            investCriteriaAssessment: {
-                independent: { score: 0, justification: "No story provided." },
-                negotiable: { score: 0, justification: "No story provided." },
-                valuable: { score: 0, justification: "No story provided." },
-                estimable: { score: 0, justification: "No story provided." },
-                small: { score: 0, justification: "No story provided." },
-                testable: { score: 0, justification: "No story provided." }
-            },
-            outstandingQueriesAndConflicts: ["What is the user story you would like to analyze?"],
-            actionableRecommendations: {
-                suggestedImprovements: "Please provide the user story text.",
-                storyDecomposition: []
-            }
-        };
-    }
-
-
-    const clarityAnalysis = analyzeClarityAndRequirement(story, acceptanceCriteriaText);
-    const investAnalysis = analyzeINVEST(story, acceptanceCriteriaText);
-    const overallReadiness = generateOverallReadiness(clarityAnalysis.total, investAnalysis.total);
-    const queriesAndRecs = generateQueriesAndRecommendations(story, clarityAnalysis, investAnalysis);
+    const { queries, recommendations } = generateQueriesAndRecommendations(story, clarityAnalysis, investAnalysis);
 
     return {
         overallReadinessScore: overallReadiness,
-        clarityAndRequirementAnalysis: {
-            formatCheck: clarityAnalysis.formatCheck,
-            clarityAmbiguity: clarityAnalysis.clarityAmbiguity,
-            acceptanceCriteria: clarityAnalysis.acceptanceCriteria,
-            // Adding total score for this section for completeness, matching prompt's "Score Breakdown"
-            totalScore: clarityAnalysis.total
-        },
-        investCriteriaAssessment: {
-            independent: investAnalysis.independent,
-            negotiable: investAnalysis.negotiable,
-            valuable: investAnalysis.valuable,
-            estimable: investAnalysis.estimable,
-            small: investAnalysis.small,
-            testable: investAnalysis.testable,
-            // Adding total score for this section for completeness
-            totalScore: investAnalysis.total
-        },
-        outstandingQueriesAndConflicts: queriesAndRecs.outstandingQueriesAndConflicts,
-        actionableRecommendations: queriesAndRecs.actionableRecommendations
+        clarityAndRequirementAnalysis: { ...clarityAnalysis, totalScore: clarityAnalysis.total },
+        investCriteriaAssessment: { ...investAnalysis, totalScore: investAnalysis.total },
+        outstandingQueriesAndConflicts: queries,
+        actionableRecommendations: recommendations
     };
 }
 
+// =================================================================
+// REPORTING & RECOMMENDATION GENERATION
+// =================================================================
+
+/**
+ * Generates actionable recommendations based on the analysis.
+ * @param {string} story - The user story text.
+ * @param {object} clarityAnalysis - The results from analyzeClarityAndRequirement.
+ * @param {object} investAnalysis - The results from analyzeINVEST.
+ * @returns {{queries: string[], recommendations: object}} Generated queries and recommendations.
+ */
+function generateQueriesAndRecommendations(story, clarityAnalysis, investAnalysis) {
+    let queries = [];
+    let improvements = [];
+    let decomposition = [];
+
+    // Map analysis results to queries and recommendations
+    if (clarityAnalysis.formatCheck.score < CONFIG.SCORING.FORMAT_SUCCESS) {
+        improvements.push(`Rephrase story to fit the standard format: "As a [persona], I want [goal], so that [value]".`);
+    }
+    if (clarityAnalysis.acceptanceCriteria.score < CONFIG.SCORING.AC_PROVIDED) {
+        queries.push("Could you provide or refine the acceptance criteria to be more specific and testable?");
+        improvements.push(`Refine ACs: ${clarityAnalysis.acceptanceCriteria.feedback}`);
+    }
+    if (investAnalysis.valuable.score < 10) {
+        queries.push("What is the specific value or benefit this story delivers?");
+        improvements.push(`Clarify value: ${investAnalysis.valuable.justification}`);
+    }
+    if (investAnalysis.small.score < CONFIG.SCORING.INVEST_DEFAULT_HIGH) {
+        queries.push("Is this story small enough for one sprint? If not, how can it be split?");
+        improvements.push(`Consider story size: ${investAnalysis.small.justification}`);
+        decomposition.push("If the story is too large, consider splitting it by acceptance criteria, or by sub-steps in the user's workflow. Each smaller story should still be valuable and testable.");
+    }
+    if (investAnalysis.testable.score < CONFIG.SCORING.INVEST_DEFAULT_HIGH) {
+        queries.push("Are the success conditions clear and testable? How would you verify this story is done?");
+        improvements.push(`Improve testability: ${investAnalysis.testable.justification}`);
+    }
+    if (investAnalysis.independent.score < CONFIG.SCORING.INVEST_DEFAULT_MEDIUM) {
+        queries.push("Are there any hidden dependencies? Can this be developed independently?");
+        improvements.push(`Clarify independence: ${investAnalysis.independent.justification}`);
+    }
+    
+    return {
+        queries,
+        recommendations: {
+            suggestedImprovements: improvements.length > 0 ? improvements.join("\n") : "Story is in good shape. No major improvements suggested.",
+            storyDecomposition: decomposition
+        }
+    };
+}
+
+/**
+ * Generates a blank report for invalid initial input.
+ * @returns {object} An empty report structure.
+ */
+function generateEmptyReport() {
+    const emptySection = { score: 0, feedback: "No story provided." };
+    const emptyInvest = { score: 0, justification: "No story provided." };
+    return {
+        overallReadinessScore: {
+            readinessRating: 0,
+            readinessCategory: getReadinessCategory(0).label,
+            summary: "Story is empty or missing. Please provide a user story.",
+            scoreBreakdown: { clarityRequirementAnalysis: 0, investCriteriaAssessment: 0 }
+        },
+        clarityAndRequirementAnalysis: { formatCheck: emptySection, clarityAmbiguity: emptySection, acceptanceCriteria: emptySection },
+        investCriteriaAssessment: { independent: emptyInvest, negotiable: emptyInvest, valuable: emptyInvest, estimable: emptyInvest, small: emptyInvest, testable: emptyInvest },
+        outstandingQueriesAndConflicts: ["What is the user story you would like to analyze?"],
+        actionableRecommendations: { suggestedImprovements: "Please provide the user story text.", storyDecomposition: [] }
+    };
+}
+
+
+// Make the main function available for export.
 module.exports = { analyzeUserStory };

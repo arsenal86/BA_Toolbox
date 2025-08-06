@@ -2,26 +2,23 @@
 
 [build]
   # The base directory where the build command is run
-  base = "business-analysis-app/frontend"
+  base = "."
 
   # Command to build the React frontend
-  command = "npm install && npm run build"
+  command = "cd frontend && npm install && npm run build"
 
   # Directory that contains the deploy-ready HTML files
-  publish = "business-analysis-app/frontend/build"
+  publish = "frontend/build"
 
   # Directory that contains Netlify Functions
-  functions = "business-analysis-app/netlify/functions"
+  functions = "netlify/functions"
 
 [dev]
   # Command to start your local development server for the frontend
   # This helps `netlify dev` know how to serve your frontend
   command = "cd frontend && npm start"
-  # Port for the local static server (React dev server)
   port = 3000
-  # Port for the Netlify Functions server
-  functionsPort = 34567 # Default, can be specified if needed
-  # The publish directory for `netlify dev` is often the same as build.publish
+  functionsPort = 34567
   publish = "frontend/build"
   # Framework detection can often set this, but good to be explicit
   # For create-react-app, the dev server runs on port 3000 typically

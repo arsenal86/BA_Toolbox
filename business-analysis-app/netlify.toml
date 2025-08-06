@@ -1,3 +1,8 @@
+# Redirect all routes to index.html for React SPA support
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
 # netlify.toml
 
 [build]
